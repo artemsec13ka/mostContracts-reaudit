@@ -6,38 +6,25 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./IMasterChef2.sol";
 import "./IUniswapV2Pair.sol";
 import "./IUniswapV2Router.sol";
-import "./SafeUniswapV2Router.sol";
 import "./ERC20Spot.sol";
 import "./IWrap.sol";
 
 contract SpotV1 is ERC20Spot {
     using SafeERC20 for IERC20;
-    using SafeUniswapV2Router for IUniswapV2Router;
-
-    // todo
-    // return remained !!!
-    // swap fees support !!!
-    // safeERC20 !!!
-    // BNB support !!!
-    // restake rules
-    // transfers logs to userId
-    // informative name and symbol
-    // owner should be active
-    // tariffs / subscription rules
-    // deposit / withdraw without restake ??
-    // APR / APY
-    // StableSwap support
-    // !!!!!! init functions permissions, close reInit
-
-
-    // interaction changes:
-    // wrapper in init
-    // deposit BNB, withdraw BNB
 
     struct Swap {
         address[] path;
         uint outMin;
     }
+
+    event SpotLog(
+        uint8 indexed operationType, // 0 - deposit, 1 - withdrawal, 2 - restake
+        address indexed token, // deposit or withdrawal token
+        uint tokenAmount,
+        uint lpAmount, // amount of LP deposited or withdrawn
+        uint lpToken0Amount,
+        uint lpToken1Amount
+    );
 
     address public pool;
     address public router;
@@ -87,6 +74,7 @@ contract SpotV1 is ERC20Spot {
         Swap memory swapReward1,
         uint deadline
     ) public payable {
+        require(isActiveRDNOwner(msg.sender) || msg.sender == factory, "Access denied");
         address _stakingToken = stakingToken; // gas savings
         address _pool = pool; // gas savings
         uint _poolIndex = poolIndex; //gas savings
@@ -102,14 +90,18 @@ contract SpotV1 is ERC20Spot {
 
         // buy liquidity and stake
         if (msg.value > 0) {
+            require(swap0.path[0] == wrapper, "wrong path");
             amount = msg.value;
             IWrap(wrapper).deposit{value: amount}();
         } else {
             IERC20(swap0.path[0]).safeTransferFrom(msg.sender, address(this), amount);
+            amount = IERC20(swap0.path[0]).balanceOf(address(this));
         }
-
+        
         _buyLiquidity(amount, swap0, swap1, deadline);
-        _stake(IERC20(_stakingToken).balanceOf(address(this)));
+        uint stakingTokenAmount = IERC20(_stakingToken).balanceOf(address(this));
+        _log(0, swap0.path[0], amount, stakingTokenAmount);
+        _stake(stakingTokenAmount);
 
         // mint
         userInfo = IMasterChef2(_pool).userInfo(_poolIndex, address(this));
@@ -123,7 +115,7 @@ contract SpotV1 is ERC20Spot {
 
         _mint(ownerId, amountToMint);
 
-        _returnRemainder(swap0.path[0]);
+        // _returnRemainder(swap0.path[0]);
     }
 
     function withdraw(
@@ -133,7 +125,7 @@ contract SpotV1 is ERC20Spot {
         Swap memory swapReward0,
         Swap memory swapReward1,
         uint deadline
-    ) public onlyRDNOwner(msg.sender) {
+    ) public onlyActiveRDNOwner(msg.sender) {
         address _pool = pool; // gas savings
         uint _poolIndex = poolIndex; //gas savings
         address tokenToWithdraw = swap0.path[swap0.path.length - 1];
@@ -148,39 +140,42 @@ contract SpotV1 is ERC20Spot {
         uint beforeWithdrawBalance = userInfo.amount;
 
         // sell liquidity
-        // refactor to strategy tokens base calculation
         uint amountToWithdraw = ((amountToBurn * beforeWithdrawBalance)) / beforeWithdrawSupply;
         _unStake(amountToWithdraw);
 
         _sellLiquidity(amountToWithdraw, swap0, swap1, deadline);
 
-        // withdraw tokens swap[0].path[swap.path.length - 1]
-        if (swap0.path[swap0.path.length - 1] == wrapper) {
+        
+
+        // withdraw tokens tokenToWithdraw
+        if (tokenToWithdraw == wrapper) {
             IWrap(wrapper).withdraw(IWrap(wrapper).balanceOf(address(this)));
+            _log(1, tokenToWithdraw, address(this).balance, amountToWithdraw);
             (bool sentRecipient, ) = payable(msg.sender).call{value: address(this).balance}("");
-            require(sentRecipient, "transfer ETH to recipeint failed");
+            require(sentRecipient, "transfer BNB to recipeint failed");
         } else {
-            IERC20(tokenToWithdraw).safeTransfer(msg.sender, IERC20(tokenToWithdraw).balanceOf(address(this)));
+            uint withdrawTokenAmount = IERC20(tokenToWithdraw).balanceOf(address(this));
+            _log(1, tokenToWithdraw, withdrawTokenAmount, amountToWithdraw);
+            IERC20(tokenToWithdraw).safeTransfer(msg.sender, withdrawTokenAmount);
         }
 
         //burn
         _burn(ownerId, amountToBurn);
 
-        _returnRemainder(swap0.path[swap0.path.length - 1]);
+        // _returnRemainder(swap0.path[swap0.path.length - 1]);
     }
 
     function callAny(address payable _addr, bytes memory _data) public payable onlyRDNOwner(msg.sender) returns(bool success, bytes memory data){
         (success, data) = _addr.call{value: msg.value}(_data);
     }
-
+    
     function restake(
         Swap memory swapReward0,
         Swap memory swapReward1,
         uint deadline
-    ) public {
+    ) public onlyActiveRDNOwner(msg.sender) {
         _restake(deadline, swapReward0, swapReward1);
-
-        _returnRemainder(swapReward0.path[0]);
+        // _returnRemainder(swapReward0.path[0]);
     }
 
     function info() public view returns (uint, address, uint, uint, uint) {
@@ -192,6 +187,14 @@ contract SpotV1 is ERC20Spot {
         uint staking = userInfo.amount;
 
         return (poolIndex, stakingToken, reward, staking, totalEarned+reward);
+    }
+
+    function _log(uint8 operationType, address token, uint tokenAmount, uint lpAmount) internal {
+        (uint reserve0, uint reserve1,) = IUniswapV2Pair(stakingToken).getReserves();
+        uint totalLpSupply = IERC20(stakingToken).totalSupply();
+        uint lpToken0Amount = (lpAmount * reserve0)/totalLpSupply;
+        uint lpToken1Amount = (lpAmount * reserve1)/totalLpSupply;
+        emit SpotLog(operationType, token, tokenAmount, lpAmount, lpToken0Amount, lpToken1Amount);
     }
 
     function _restake(
@@ -208,7 +211,9 @@ contract SpotV1 is ERC20Spot {
         _pool.deposit(poolIndex, 0); // get all reward
         uint amount = _rewardToken.balanceOf(address(this));
         (token0, token1) = _buyLiquidity(amount, swap0, swap1, deadline);
-        _stake(IERC20(stakingToken).balanceOf(address(this)));
+        uint stakingTokenAmount = IERC20(stakingToken).balanceOf(address(this));
+        _log(2, rewardToken, amount, stakingTokenAmount);
+        _stake(stakingTokenAmount);
     }
 
     function _buyLiquidity(
@@ -218,13 +223,13 @@ contract SpotV1 is ERC20Spot {
         uint deadline
     ) internal returns(address token0, address token1) {
         require(swap0.path[0] == swap1.path[0], "start tokens should be equal");
-
+        
         IUniswapV2Pair to = IUniswapV2Pair(stakingToken);
 
         // prepare tokens
         token0 = to.token0();
         token1 = to.token1();
-        require(swap0.path[swap0.path.length - 1] == token0, "token0 is invalid");
+        require(swap0.path[swap0.path.length - 1] == token0, "token0 is invalidddd");
         require(swap1.path[swap1.path.length - 1] == token1, "token1 is invalid");
 
         // swap input tokens
@@ -236,8 +241,6 @@ contract SpotV1 is ERC20Spot {
 
         _addLiquidity(token0, token1, deadline);
 
-        // todo: return remained
-
     }
 
     function _sellLiquidity(
@@ -247,7 +250,7 @@ contract SpotV1 is ERC20Spot {
         uint deadline
     ) internal returns(address token0, address token1) {
         require(swap0.path[swap0.path.length-1] == swap1.path[swap1.path.length-1], "end tokens should be equal");
-
+        
         IUniswapV2Pair from = IUniswapV2Pair(stakingToken);
 
         // prepare tokens / remove liquidity
@@ -265,7 +268,6 @@ contract SpotV1 is ERC20Spot {
         _swap(amount0, swap0.outMin, swap0.path, deadline);
         _swap(amount1, swap1.outMin, swap1.path, deadline);
 
-        // todo: return remained
 
     }
 
@@ -361,7 +363,7 @@ contract SpotV1 is ERC20Spot {
             uint256 tokenBalance = IERC20(tokens[i]).balanceOf(address(this));
             if (tokenBalance > 0) {
                 if (tokens[i] == wrapper) {
-                    IWrap(wrapper).withdraw(IWrap(wrapper).balanceOf(address(this)));
+                    IWrap(wrapper).withdraw(tokenBalance);
                     (bool sentRecipient, ) = payable(target).call{value: address(this).balance}("");
                     require(sentRecipient, "transfer ETH to recipeint failed");
                 } else {

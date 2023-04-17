@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
 import {WithdrawAnyERC20Token} from "../Utils/WithdrawAnyERC20Token.sol";
@@ -19,7 +19,7 @@ contract RDNRegistry is IRDNRegistry, AccessControlEnumerable, WithdrawAnyERC20T
     bytes32 public constant FACTORSADDRESS_ROLE = keccak256("FACTORSADDRESS_ROLE");
     // admin role for RDNPOS contract
     bytes32 public constant TARIFFUPDATE_ROLE = keccak256("TARIFFUPDATE_ROLE");
-    // admin role for RDNPOS contract
+    // admin role for RDNPOS contract 
     bytes32 public constant ACTIVEUNTILLUPDATE_ROLE = keccak256("ACTIVEUNTILLUPDATE_ROLE");
     // admin role fore points rate updating
     bytes32 public constant POINTSRATEUPDATE_ROLE = keccak256("POINTSRATEUPDATE_ROLE");
@@ -76,7 +76,7 @@ contract RDNRegistry is IRDNRegistry, AccessControlEnumerable, WithdrawAnyERC20T
         User memory _zeroUser = User(0, address(0), 0, 0, 0, block.timestamp);
         users.push(_zeroUser);
         userId[address(0)] = 0;
-
+        
         //add root user (userId 1), referencing parantId=0.
         User memory _rootUser = User(12, _root, 0, 7, block.timestamp + 36500 days, block.timestamp);
         users.push(_rootUser);
@@ -100,8 +100,8 @@ contract RDNRegistry is IRDNRegistry, AccessControlEnumerable, WithdrawAnyERC20T
     ///////////////////////////////////////
     // public user functions
     ///////////////////////////////////////
-
-    /*
+    
+    /* 
      * @notice user registration
      * @param _parentId: registered user with tariff > 0
     */
