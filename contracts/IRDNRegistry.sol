@@ -3,7 +3,7 @@
 pragma solidity 0.8.17;
 
 interface IRDNRegistry {
-
+    
     struct User {
         uint level;
         address userAddress;
@@ -13,18 +13,22 @@ interface IRDNRegistry {
         uint created;
     }
 
+    function register(uint _parentId) external;
+
     function getUser(uint) external view returns(User memory);
 
     function getUserIdByAddress(address _userAddress) external view returns(uint);
 
     function usersCount() external view returns(uint);
-
+    
+    function getUsersCount() external view returns(uint);
+    
     function getChildren(uint _userId) external view returns(uint[] memory);
 
     function isRegistered(uint _userId) external view returns(bool);
-
+    
     function isValidUser(uint _userId) external view returns(bool);
-
+    
     function isRegisteredByAddress(address _userAddress) external view returns(bool);
 
     function isActive(uint _userId) external view returns(bool);
@@ -44,7 +48,7 @@ interface IRDNRegistry {
     function getDistributor(address _token) external view returns(address);
 
     function setTariff(uint _userId, uint _tariff) external;
-
+    
     function setActiveUntill(uint _userId, uint _activeUntill) external;
 
 }

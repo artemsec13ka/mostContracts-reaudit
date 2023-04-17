@@ -8,6 +8,17 @@ interface ISpotV1 {
         uint outMin;
     }
 
+    struct Log {
+        uint timestamp;
+        uint blocknumber;
+        uint8 operationType; // 0 - deposit, 1 - withdrawal, 2 - restake
+        address token; // deposit or withdrawal token
+        uint tokenAmount;
+        uint lpAmount; // amount of LP deposited or withdrawn
+        uint lpToken0Amount;
+        uint lpToken1Amount;
+    }
+    
     function init(
         address _wrapper,
         address _pool,

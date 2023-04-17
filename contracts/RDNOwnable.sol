@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import {IRDNRegistry} from "./interfaces/IRDNRegistry.sol";
 
@@ -14,13 +14,24 @@ contract RDNOwnable {
         ownerId = _ownerId;
     }
 
-    // modifier RDNOnly(address _sender) {
-    //     require(isRegistered)
-    // }
-
     modifier onlyRDNOwner(address _userAddress) {
-        require(IRDNRegistry(registry).getUserIdByAddress(_userAddress) == ownerId, "RDNOwnable: access denied");
+        require(isRDNOwner(_userAddress), "RDNOwnable: access denied");
         _;
+    }
+
+    modifier onlyActiveRDNOwner(address _userAddress) {
+        require(isActiveRDNOwner(_userAddress), "RDNOwnable: access denied");
+        _;
+    }
+
+    function isRDNOwner(address _userAddress) public view returns(bool) {
+        return(IRDNRegistry(registry).getUserIdByAddress(_userAddress) == ownerId);
+    }
+
+    function isActiveRDNOwner(address _userAddress) public view returns(bool) {
+        IRDNRegistry registryInterface = IRDNRegistry(registry);
+        uint _userId = registryInterface.getUserIdByAddress(_userAddress);
+        return(registryInterface.isActive(_userId) && (ownerId == _userId));
     }
 
 }
